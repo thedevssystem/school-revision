@@ -22,23 +22,22 @@
       justify-content: center;
       align-items: center;
       color: white;
-      background: rgba(0, 0, 0, 0.75);
+      background: rgba(0, 0, 0, 0.8);
       text-align: center;
     }
 
-    #menu h1 {
-      font-size: 42px;
-      margin-bottom: 10px;
-    }
-
     #startButton {
-      padding: 14px 28px;
+      padding: 16px 32px;
       border: 0;
-      border-radius: 6px;
+      border-radius: 8px;
       background: #e63946;
       color: white;
-      font-size: 18px;
+      font-size: 20px;
       cursor: pointer;
+    }
+
+    #startButton:hover {
+      background: #ff5361;
     }
 
     #crosshair {
@@ -97,12 +96,19 @@
   <div id="crosshair"></div>
   <div id="hud">Score: 0</div>
 
-  <script type="module">
-    import * as THREE from
-      "https://cdn.jsdelivr.net/npm/three@0.185.0/build/three.module.js";
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.185.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.185.0/examples/jsm/"
+      }
+    }
+  </script>
 
+  <script type="module">
+    import * as THREE from "three";
     import { PointerLockControls } from
-      "https://cdn.jsdelivr.net/npm/three@0.185.0/examples/jsm/controls/PointerLockControls.js";
+      "three/addons/controls/PointerLockControls.js";
 
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x87ceeb);
@@ -121,7 +127,6 @@
     document.body.appendChild(renderer.domElement);
 
     const controls = new PointerLockControls(camera, document.body);
-    scene.add(controls.object);
 
     const light = new THREE.HemisphereLight(0xffffff, 0x444444, 3);
     scene.add(light);
@@ -163,8 +168,6 @@
 
       bot.position.set(x, 0, z);
       bot.userData.isBot = true;
-      bot.userData.health = 1;
-
       scene.add(bot);
       bots.push(bot);
     }
@@ -173,10 +176,12 @@
     createBot(0, -6);
     createBot(6, -4);
 
-    let score = 0;
-    const hud = document.getElementById("hud");
     const menu = document.getElementById("menu");
     const startButton = document.getElementById("startButton");
+    const hud = document.getElementById("hud");
+
+    let score = 0;
+    const keys = {};
 
     startButton.addEventListener("click", () => {
       controls.lock();
@@ -189,8 +194,6 @@
     controls.addEventListener("unlock", () => {
       menu.style.display = "flex";
     });
-
-    const keys = {};
 
     window.addEventListener("keydown", event => {
       keys[event.code] = true;
@@ -205,10 +208,7 @@
     window.addEventListener("mousedown", event => {
       if (!controls.isLocked || event.button !== 0) return;
 
-      raycaster.setFromCamera(
-        new THREE.Vector2(0, 0),
-        camera
-      );
+      raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
 
       const hits = raycaster.intersectObjects(bots);
 
