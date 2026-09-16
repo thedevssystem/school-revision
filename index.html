@@ -129,6 +129,30 @@
       text-shadow: 2px 2px 4px black;
       pointer-events: none;
     }
+
+    #damageFlash {
+      position: fixed;
+      inset: 0;
+      z-index: 4;
+      background: rgba(255, 0, 0, 0.45);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.1s ease-out;
+    }
+
+    #warning {
+      position: fixed;
+      left: 50%;
+      bottom: 12%;
+      z-index: 5;
+      transform: translateX(-50%);
+      color: #ff5555;
+      font-size: 20px;
+      font-weight: bold;
+      opacity: 0;
+      pointer-events: none;
+      text-shadow: 1px 1px 3px black;
+    }
   </style>
 </head>
 
@@ -159,6 +183,8 @@
   </div>
 
   <div id="message"></div>
+  <div id="warning">INCOMING FIRE!</div>
+  <div id="damageFlash"></div>
 
   <script type="importmap">
     {
@@ -203,6 +229,8 @@
     const timeText = document.getElementById("time");
     const healthText = document.getElementById("health");
     const message = document.getElementById("message");
+    const damageFlash = document.getElementById("damageFlash");
+    const warning = document.getElementById("warning");
 
     const light = new THREE.HemisphereLight(
       0xffffff,
@@ -246,6 +274,7 @@
     createWall(15, 1, 0, 1, 4, 30);
 
     const bots = [];
+    const projectiles = [];
 
     const settings = {
       easy: {
@@ -253,7 +282,8 @@
         speed: 1.2,
         turnTime: 2.5,
         attackDelay: 4,
-        attackRange: 7,
+        attackRange: 16,
+        projectileSpeed: 7,
         damage: 5,
         points: 100
       },
@@ -263,7 +293,8 @@
         speed: 2,
         turnTime: 1.5,
         attackDelay: 2.5,
-        attackRange: 9,
+        attackRange: 18,
+        projectileSpeed: 10,
         damage: 10,
         points: 150
       },
@@ -273,7 +304,8 @@
         speed: 3,
         turnTime: 0.8,
         attackDelay: 1.2,
-        attackRange: 12,
+        attackRange: 22,
+        projectileSpeed: 14,
         damage: 15,
         points: 250
       }
@@ -284,7 +316,8 @@
     let timeRemaining = 60;
     let playerHealth = 100;
     let gameRunning = false;
-    let roundEnded = false;
+    let damageFlashTimer = 0;
+    let warningTimer = 0;
 
     document.querySelectorAll("#difficulty button").forEach(button => {
       button.addEventListener("click", () => {
@@ -320,7 +353,6 @@
       bot.userData.direction = Math.random() * Math.PI * 2;
       bot.userData.turnTimer = Math.random() * 2;
       bot.userData.attackTimer = 1 + Math.random() * 2;
-      bot.userData.health = 1;
 
       scene.add(bot);
       bots.push(bot);
@@ -333,6 +365,16 @@
         scene.remove(bot);
         bot.geometry.dispose();
         bot.material.dispose();
+      }
+    }
+
+    function removeAllProjectiles() {
+      while (projectiles.length > 0) {
+        const projectile = projectiles.pop();
+
+        scene.remove(projectile.mesh);
+        projectile.mesh.geometry.dispose();
+        projectile.mesh.material.dispose();
       }
     }
 
@@ -357,9 +399,102 @@
       );
     }
 
+    function showDamageEffect() {
+      damageFlashTimer = 0.25;
+      damageFlash.style.opacity = "1";
+    }
+
+    function createProjectile(bot) {
+      const projectileGeometry = new THREE.SphereGeometry(
+        0.12,
+        12,
+        12
+      );
+
+      const projectileMaterial = new THREE.MeshBasicMaterial({
+        color: 0xff2200
+      });
+
+      const projectile = new THREE.Mesh(
+        projectileGeometry,
+        projectileMaterial
+      );
+
+      const start = bot.position.clone();
+      start.y = 1;
+
+      projectile.position.copy(start);
+      scene.add(projectile);
+
+      const target = controls.object.position.clone();
+      target.y = 1.5;
+
+      const direction = target.sub(start).normalize();
+
+      projectiles.push({
+        mesh: projectile,
+        direction: direction,
+        speed: settings[selectedDifficulty].projectileSpeed,
+        damage: settings[selectedDifficulty].damage,
+        life: 5
+      });
+
+      warningTimer = 0.5;
+      warning.style.opacity = "1";
+    }
+
+    function updateProjectiles(delta) {
+      for (let i = projectiles.length - 1; i >= 0; i--) {
+        const projectile = projectiles[i];
+
+        projectile.mesh.position.addScaledVector(
+          projectile.direction,
+          projectile.speed * delta
+        );
+
+        projectile.life -= delta;
+
+        const distanceToPlayer =
+          projectile.mesh.position.distanceTo(
+            controls.object.position
+          );
+
+        if (distanceToPlayer < 0.8) {
+          playerHealth -= projectile.damage;
+
+          showDamageEffect();
+
+          scene.remove(projectile.mesh);
+          projectile.mesh.geometry.dispose();
+          projectile.mesh.material.dispose();
+          projectiles.splice(i, 1);
+
+          if (playerHealth <= 0) {
+            playerHealth = 0;
+            updateHud();
+            endRound("YOU LOST!");
+            return;
+          }
+
+          updateHud();
+          continue;
+        }
+
+        if (
+          projectile.life <= 0 ||
+          Math.abs(projectile.mesh.position.x) > 30 ||
+          Math.abs(projectile.mesh.position.z) > 30
+        ) {
+          scene.remove(projectile.mesh);
+          projectile.mesh.geometry.dispose();
+          projectile.mesh.material.dispose();
+          projectiles.splice(i, 1);
+        }
+      }
+    }
+
     function endRound(text) {
       gameRunning = false;
-      roundEnded = true;
       message.textContent = text;
       startButton.textContent = "Play Again";
       controls.unlock();
@@ -367,13 +502,17 @@
 
     function startGame() {
       removeAllBots();
+      removeAllProjectiles();
 
       score = 0;
       timeRemaining = 60;
       playerHealth = 100;
       gameRunning = true;
-      roundEnded = false;
 
+      damageFlashTimer = 0;
+      warningTimer = 0;
+      damageFlash.style.opacity = "0";
+      warning.style.opacity = "0";
       message.textContent = "";
       startButton.textContent = "Start Game";
 
@@ -491,18 +630,9 @@
           distance <= difficulty.attackRange &&
           bot.userData.attackTimer <= 0
         ) {
-          playerHealth -= difficulty.damage;
+          createProjectile(bot);
           bot.userData.attackTimer =
             difficulty.attackDelay;
-
-          updateHud();
-
-          if (playerHealth <= 0) {
-            playerHealth = 0;
-            updateHud();
-            endRound("YOU LOST!");
-            break;
-          }
         }
       }
     }
@@ -510,6 +640,24 @@
     function gameLoop() {
       const rawDelta = clock.getDelta();
       const delta = Math.min(rawDelta, 0.1);
+
+      if (damageFlashTimer > 0) {
+        damageFlashTimer -= delta;
+
+        if (damageFlashTimer <= 0) {
+          damageFlashTimer = 0;
+          damageFlash.style.opacity = "0";
+        }
+      }
+
+      if (warningTimer > 0) {
+        warningTimer -= delta;
+
+        if (warningTimer <= 0) {
+          warningTimer = 0;
+          warning.style.opacity = "0";
+        }
+      }
 
       if (gameRunning && controls.isLocked) {
         const speed = 6 * delta;
@@ -531,6 +679,7 @@
         }
 
         updateBots(delta);
+        updateProjectiles(delta);
 
         timeRemaining -= delta;
 
