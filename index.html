@@ -154,7 +154,8 @@
   <div id="hud">
     Score: <span id="score">0</span><br>
     Bots left: <span id="botsLeft">0</span><br>
-    Time: <span id="time">60</span>
+    Time: <span id="time">60</span><br>
+    Health: <span id="health">100</span>
   </div>
 
   <div id="message"></div>
@@ -185,7 +186,10 @@
 
     camera.position.set(0, 1.6, 8);
 
-    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    const renderer = new THREE.WebGLRenderer({
+      antialias: true
+    });
+
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     document.body.appendChild(renderer.domElement);
@@ -197,9 +201,15 @@
     const scoreText = document.getElementById("score");
     const botsLeftText = document.getElementById("botsLeft");
     const timeText = document.getElementById("time");
+    const healthText = document.getElementById("health");
     const message = document.getElementById("message");
 
-    const light = new THREE.HemisphereLight(0xffffff, 0x444444, 3);
+    const light = new THREE.HemisphereLight(
+      0xffffff,
+      0x444444,
+      3
+    );
+
     scene.add(light);
 
     const sun = new THREE.DirectionalLight(0xffffff, 2);
@@ -208,7 +218,9 @@
 
     const ground = new THREE.Mesh(
       new THREE.BoxGeometry(30, 0.2, 30),
-      new THREE.MeshStandardMaterial({ color: 0x2e8b57 })
+      new THREE.MeshStandardMaterial({
+        color: 0x2e8b57
+      })
     );
 
     ground.position.y = -1;
@@ -240,18 +252,29 @@
         count: 3,
         speed: 1.2,
         turnTime: 2.5,
+        attackDelay: 4,
+        attackRange: 7,
+        damage: 5,
         points: 100
       },
+
       regular: {
         count: 5,
         speed: 2,
         turnTime: 1.5,
+        attackDelay: 2.5,
+        attackRange: 9,
+        damage: 10,
         points: 150
       },
+
       expert: {
         count: 8,
         speed: 3,
         turnTime: 0.8,
+        attackDelay: 1.2,
+        attackRange: 12,
+        damage: 15,
         points: 250
       }
     };
@@ -259,6 +282,7 @@
     let selectedDifficulty = "easy";
     let score = 0;
     let timeRemaining = 60;
+    let playerHealth = 100;
     let gameRunning = false;
     let roundEnded = false;
 
@@ -283,26 +307,29 @@
     function createBot() {
       const bot = new THREE.Mesh(
         new THREE.BoxGeometry(1, 2, 1),
-        new THREE.MeshStandardMaterial({ color: 0xff3333 })
+        new THREE.MeshStandardMaterial({
+          color: 0xff3333
+        })
       );
 
       const position = randomArenaPosition();
 
       bot.position.set(position.x, 0, position.z);
+
       bot.userData.isBot = true;
       bot.userData.direction = Math.random() * Math.PI * 2;
       bot.userData.turnTimer = Math.random() * 2;
+      bot.userData.attackTimer = 1 + Math.random() * 2;
       bot.userData.health = 1;
 
       scene.add(bot);
       bots.push(bot);
-
-      updateHud();
     }
 
     function removeAllBots() {
       while (bots.length > 0) {
         const bot = bots.pop();
+
         scene.remove(bot);
         bot.geometry.dispose();
         bot.material.dispose();
@@ -320,13 +347,21 @@
     function updateHud() {
       scoreText.textContent = score;
       botsLeftText.textContent = bots.length;
-      timeText.textContent = Math.max(0, Math.ceil(timeRemaining));
+      timeText.textContent = Math.max(
+        0,
+        Math.ceil(timeRemaining)
+      );
+      healthText.textContent = Math.max(
+        0,
+        Math.ceil(playerHealth)
+      );
     }
 
     function endRound(text) {
       gameRunning = false;
       roundEnded = true;
       message.textContent = text;
+      startButton.textContent = "Play Again";
       controls.unlock();
     }
 
@@ -335,11 +370,15 @@
 
       score = 0;
       timeRemaining = 60;
+      playerHealth = 100;
       gameRunning = true;
       roundEnded = false;
+
       message.textContent = "";
+      startButton.textContent = "Start Game";
 
       camera.position.set(0, 1.6, 8);
+
       spawnBots();
       updateHud();
 
@@ -374,7 +413,10 @@
       if (!gameRunning || !controls.isLocked) return;
       if (event.button !== 0) return;
 
-      raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
+      raycaster.setFromCamera(
+        new THREE.Vector2(0, 0),
+        camera
+      );
 
       const hits = raycaster.intersectObjects(bots);
 
@@ -406,13 +448,15 @@
 
       for (const bot of bots) {
         bot.userData.turnTimer -= delta;
+        bot.userData.attackTimer -= delta;
 
         if (bot.userData.turnTimer <= 0) {
           bot.userData.direction =
             Math.random() * Math.PI * 2;
 
           bot.userData.turnTimer =
-            difficulty.turnTime * (0.7 + Math.random() * 0.6);
+            difficulty.turnTime *
+            (0.7 + Math.random() * 0.6);
         }
 
         bot.position.x +=
@@ -438,6 +482,28 @@
         );
 
         bot.rotation.y += delta;
+
+        const distance = bot.position.distanceTo(
+          controls.object.position
+        );
+
+        if (
+          distance <= difficulty.attackRange &&
+          bot.userData.attackTimer <= 0
+        ) {
+          playerHealth -= difficulty.damage;
+          bot.userData.attackTimer =
+            difficulty.attackDelay;
+
+          updateHud();
+
+          if (playerHealth <= 0) {
+            playerHealth = 0;
+            updateHud();
+            endRound("YOU LOST!");
+            break;
+          }
+        }
       }
     }
 
@@ -448,17 +514,29 @@
       if (gameRunning && controls.isLocked) {
         const speed = 6 * delta;
 
-        if (keys["KeyW"]) controls.moveForward(speed);
-        if (keys["KeyS"]) controls.moveForward(-speed);
-        if (keys["KeyA"]) controls.moveRight(-speed);
-        if (keys["KeyD"]) controls.moveRight(speed);
+        if (keys["KeyW"]) {
+          controls.moveForward(speed);
+        }
+
+        if (keys["KeyS"]) {
+          controls.moveForward(-speed);
+        }
+
+        if (keys["KeyA"]) {
+          controls.moveRight(-speed);
+        }
+
+        if (keys["KeyD"]) {
+          controls.moveRight(speed);
+        }
 
         updateBots(delta);
 
         timeRemaining -= delta;
 
-        if (timeRemaining <= 0) {
+        if (timeRemaining <= 0 && gameRunning) {
           timeRemaining = 0;
+          updateHud();
           endRound("TIME UP!");
         }
 
@@ -472,9 +550,15 @@
     gameLoop();
 
     window.addEventListener("resize", () => {
-      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.aspect =
+        window.innerWidth / window.innerHeight;
+
       camera.updateProjectionMatrix();
-      renderer.setSize(window.innerWidth, window.innerHeight);
+
+      renderer.setSize(
+        window.innerWidth,
+        window.innerHeight
+      );
     });
   </script>
 </body>
