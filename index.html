@@ -283,7 +283,7 @@
         turnTime: 2.5,
         attackDelay: 4,
         attackRange: 16,
-        projectileSpeed: 7,
+        projectileSpeed: 5,
         damage: 5,
         points: 100
       },
@@ -294,7 +294,7 @@
         turnTime: 1.5,
         attackDelay: 2.5,
         attackRange: 18,
-        projectileSpeed: 10,
+        projectileSpeed: 7,
         damage: 10,
         points: 150
       },
@@ -305,7 +305,7 @@
         turnTime: 0.8,
         attackDelay: 1.2,
         attackRange: 22,
-        projectileSpeed: 14,
+        projectileSpeed: 9,
         damage: 15,
         points: 250
       }
@@ -349,7 +349,6 @@
 
       bot.position.set(position.x, 0, position.z);
 
-      bot.userData.isBot = true;
       bot.userData.direction = Math.random() * Math.PI * 2;
       bot.userData.turnTimer = Math.random() * 2;
       bot.userData.attackTimer = 1 + Math.random() * 2;
@@ -399,32 +398,31 @@
       );
     }
 
-    function showDamageEffect() {
-      damageFlashTimer = 0.25;
-      damageFlash.style.opacity = "1";
-    }
-
-    function createProjectile(bot) {
-      const projectileGeometry = new THREE.SphereGeometry(
-        0.12,
-        12,
-        12
+    function makeProjectile(color, size) {
+      const geometry = new THREE.SphereGeometry(
+        size,
+        16,
+        16
       );
 
-      const projectileMaterial = new THREE.MeshBasicMaterial({
-        color: 0xff2200
+      const material = new THREE.MeshBasicMaterial({
+        color: color
       });
 
-      const projectile = new THREE.Mesh(
-        projectileGeometry,
-        projectileMaterial
-      );
+      const mesh = new THREE.Mesh(geometry, material);
+
+      scene.add(mesh);
+
+      return mesh;
+    }
+
+    function createBotProjectile(bot) {
+      const mesh = makeProjectile(0xff1100, 0.28);
 
       const start = bot.position.clone();
       start.y = 1;
 
-      projectile.position.copy(start);
-      scene.add(projectile);
+      mesh.position.copy(start);
 
       const target = controls.object.position.clone();
       target.y = 1.5;
@@ -432,15 +430,56 @@
       const direction = target.sub(start).normalize();
 
       projectiles.push({
-        mesh: projectile,
+        mesh: mesh,
         direction: direction,
         speed: settings[selectedDifficulty].projectileSpeed,
         damage: settings[selectedDifficulty].damage,
-        life: 5
+        owner: "bot",
+        life: 8
       });
 
-      warningTimer = 0.5;
+      warningTimer = 0.8;
       warning.style.opacity = "1";
+    }
+
+    function createPlayerProjectile() {
+      const mesh = makeProjectile(0x00aaff, 0.22);
+
+      const direction = new THREE.Vector3();
+      camera.getWorldDirection(direction);
+
+      const start = camera.position.clone();
+      start.add(direction.clone().multiplyScalar(0.8));
+
+      mesh.position.copy(start);
+
+      projectiles.push({
+        mesh: mesh,
+        direction: direction.normalize(),
+        speed: 25,
+        damage: 1,
+        owner: "player",
+        life: 2.5
+      });
+    }
+
+    function destroyBot(bot) {
+      const index = bots.indexOf(bot);
+
+      if (index === -1) return;
+
+      scene.remove(bot);
+      bots.splice(index, 1);
+
+      bot.geometry.dispose();
+      bot.material.dispose();
+
+      score += settings[selectedDifficulty].points;
+      updateHud();
+
+      if (bots.length === 0) {
+        endRound("ROUND WON!");
+      }
     }
 
     function updateProjectiles(delta) {
@@ -454,43 +493,74 @@
 
         projectile.life -= delta;
 
-        const distanceToPlayer =
-          projectile.mesh.position.distanceTo(
-            controls.object.position
-          );
+        if (projectile.owner === "bot") {
+          const distanceToPlayer =
+            projectile.mesh.position.distanceTo(
+              controls.object.position
+            );
 
-        if (distanceToPlayer < 0.8) {
-          playerHealth -= projectile.damage;
+          if (distanceToPlayer < 0.9) {
+            playerHealth -= projectile.damage;
+            showDamageEffect();
 
-          showDamageEffect();
+            removeProjectile(i);
 
-          scene.remove(projectile.mesh);
-          projectile.mesh.geometry.dispose();
-          projectile.mesh.material.dispose();
-          projectiles.splice(i, 1);
+            if (playerHealth <= 0) {
+              playerHealth = 0;
+              updateHud();
+              endRound("YOU LOST!");
+              return;
+            }
 
-          if (playerHealth <= 0) {
-            playerHealth = 0;
             updateHud();
-            endRound("YOU LOST!");
-            return;
+            continue;
+          }
+        }
+
+        if (projectile.owner === "player") {
+          let hitBot = null;
+
+          for (const bot of bots) {
+            const distanceToBot =
+              projectile.mesh.position.distanceTo(bot.position);
+
+            if (distanceToBot < 1.2) {
+              hitBot = bot;
+              break;
+            }
           }
 
-          updateHud();
-          continue;
+          if (hitBot) {
+            destroyBot(hitBot);
+            removeProjectile(i);
+            continue;
+          }
         }
 
         if (
           projectile.life <= 0 ||
-          Math.abs(projectile.mesh.position.x) > 30 ||
-          Math.abs(projectile.mesh.position.z) > 30
+          Math.abs(projectile.mesh.position.x) > 35 ||
+          Math.abs(projectile.mesh.position.y) > 25 ||
+          Math.abs(projectile.mesh.position.z) > 35
         ) {
-          scene.remove(projectile.mesh);
-          projectile.mesh.geometry.dispose();
-          projectile.mesh.material.dispose();
-          projectiles.splice(i, 1);
+          removeProjectile(i);
         }
       }
+    }
+
+    function removeProjectile(index) {
+      const projectile = projectiles[index];
+
+      scene.remove(projectile.mesh);
+      projectile.mesh.geometry.dispose();
+      projectile.mesh.material.dispose();
+
+      projectiles.splice(index, 1);
+    }
+
+    function showDamageEffect() {
+      damageFlashTimer = 0.25;
+      damageFlash.style.opacity = "1";
     }
 
     function endRound(text) {
@@ -546,38 +616,11 @@
       keys[event.code] = false;
     });
 
-    const raycaster = new THREE.Raycaster();
-
     window.addEventListener("mousedown", event => {
       if (!gameRunning || !controls.isLocked) return;
       if (event.button !== 0) return;
 
-      raycaster.setFromCamera(
-        new THREE.Vector2(0, 0),
-        camera
-      );
-
-      const hits = raycaster.intersectObjects(bots);
-
-      if (hits.length === 0) return;
-
-      const bot = hits[0].object;
-      const index = bots.indexOf(bot);
-
-      if (index === -1) return;
-
-      scene.remove(bot);
-      bots.splice(index, 1);
-
-      bot.geometry.dispose();
-      bot.material.dispose();
-
-      score += settings[selectedDifficulty].points;
-      updateHud();
-
-      if (bots.length === 0) {
-        endRound("ROUND WON!");
-      }
+      createPlayerProjectile();
     });
 
     const clock = new THREE.Clock();
@@ -630,7 +673,7 @@
           distance <= difficulty.attackRange &&
           bot.userData.attackTimer <= 0
         ) {
-          createProjectile(bot);
+          createBotProjectile(bot);
           bot.userData.attackTimer =
             difficulty.attackDelay;
         }
